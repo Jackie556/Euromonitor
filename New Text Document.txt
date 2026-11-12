@@ -1,0 +1,159 @@
+# main.R -- Internet usage: Mobile vs Total (forecast to 2030)
+# Folders: input/ (raw, never edited)  output/ (results)
+suppressPackageStartupMessages({
+  library(jsonlite); library(dplyr); library(tidyr)
+  library(readr); library(stringr); library(countrycode); library(ggplot2)
+})
+dir.create("input", showWarnings = FALSE); dir.create("output", showWarnings = FALSE)
+END_YEAR <- 2030
+
+## ---- TASK 1: EXTRACTION -------------------------------------------------
+# WB: automated via API (full history, not just latest year)
+wb_url <- paste0("https://api.worldbank.org/v2/country/all/indicator/IT.NET.USER.ZS",
+                 "?format=json&per_page=20000&date=2000:2025")
+wb_raw_path <- "input/total_internet_raw.csv"
+if (!file.exists(wb_raw_path)) {
+  res <- fromJSON(wb_url, flatten = TRUE)[[2]]
+  write_csv(res, wb_raw_path)
+}
+# ITU: no public API -> manual download from datahub.itu.int, saved unedited as
+# input/mobile_internet_raw.csv  (copy of mobile_internet_users.csv)
+mob_raw_path <- "input/mobile_internet_raw.csv"
+stopifnot(file.exists(mob_raw_path))
+
+## ---- TASK 2: CLEANING & HARMONISATION -------------------------------------
+# Total: keep real countries only (valid ISO3 drops regional aggregates)
+tot <- read_csv(wb_raw_path, show_col_types = FALSE) %>%
+  transmute(iso3 = countryiso3code, year = as.integer(date),
+            total_internet_users = suppressWarnings(as.numeric(value))) %>%
+  filter(iso3 %in% codelist$iso3c)
+
+# Mobile: wide -> long, strip "%", "-" -> NA, names -> ISO3
+custom <- c("Dominican Rep." = "DOM", "Türkiye" = "TUR", "Palestine" = "PSE",
+            "Hong Kong, China" = "HKG", "Macao, China" = "MAC",
+            "Czech Republic" = "CZE", "Côte d'Ivoire" = "CIV", "Cabo Verde" = "CPV")
+mob <- read_csv(mob_raw_path, col_types = cols(.default = "c"),
+                name_repair = "minimal") %>%
+  pivot_longer(-Economy, names_to = "year", values_to = "v") %>%
+  mutate(year = as.integer(year),
+         mobile_internet_users = suppressWarnings(as.numeric(str_remove(v, "%"))),
+         iso3 = countrycode(Economy, "country.name", "iso3c", custom_match = custom)) %>%
+  select(iso3, year, mobile_internet_users) %>%
+  filter(!is.na(iso3))
+
+# WB uses 0 as a placeholder for "no data" (e.g. ASM 1990) -> treat as missing
+tot <- tot %>% mutate(total_internet_users = ifelse(total_internet_users <= 0, NA,
+                                                    total_internet_users))
+
+merged <- full_join(tot, mob, by = c("iso3", "year")) %>%
+  mutate(country = countrycode(iso3, "iso3c", "country.name")) %>%
+  select(country, iso3, year, total_internet_users, mobile_internet_users)
+
+## ---- TASK 3: VALIDATION ---------------------------------------------------
+issues <- list(
+  missing_total   = sum(is.na(merged$total_internet_users)),
+  missing_mobile  = sum(is.na(merged$mobile_internet_users)),
+  total_gt_100    = sum(merged$total_internet_users > 100, na.rm = TRUE),
+  mobile_gt_100   = sum(merged$mobile_internet_users > 100, na.rm = TRUE),
+  mobile_lt_0     = sum(merged$mobile_internet_users < 0, na.rm = TRUE),
+  constraint_viol = sum(merged$mobile_internet_users > merged$total_internet_users,
+                        na.rm = TRUE)
+)
+print(unlist(issues))
+
+# Outlier check: mobile point >20pp away from the median of the country's other points
+merged <- merged %>% group_by(iso3) %>%
+  mutate(n_mob = sum(!is.na(mobile_internet_users)),
+         med_other = sapply(seq_along(mobile_internet_users), function(i)
+           median(mobile_internet_users[-i], na.rm = TRUE)),
+         outlier = n_mob >= 3 & !is.na(mobile_internet_users) &
+                   abs(mobile_internet_users - med_other) > 20) %>% ungroup()
+print(merged %>% filter(outlier) %>% select(country, year, mobile_internet_users, med_other))
+
+# Fixes: cap at 100 (rounding/estimation artefacts), drop outliers,
+# then enforce mobile <= total in history
+clean <- merged %>%
+  mutate(mobile_internet_users = ifelse(outlier, NA, mobile_internet_users),
+         total_internet_users  = pmin(total_internet_users, 100),
+         mobile_internet_users = pmin(mobile_internet_users, 100),
+         viol_flag = mobile_internet_users > total_internet_users,
+         mobile_internet_users = pmin(mobile_internet_users, total_internet_users)) %>%
+  select(country, iso3, year, total_internet_users, mobile_internet_users, viol_flag)
+write_csv(clean, "output/clean_merged.csv")
+
+## ---- TASK 4: MODELLING ----------------------------------------------------
+logit <- function(p) log(p / (1 - p))
+clip  <- function(p, lo = .001, hi = .999) pmin(pmax(p, lo), hi)
+
+# (a) Total users, 2000..2030: observed where available; beyond last observation,
+#     damped logit-linear trend (last 10 yrs of data, damping phi = 0.8).
+phi <- 0.8
+total_path <- function(d) {
+  d <- d %>% filter(!is.na(total_internet_users)) %>% arrange(year)
+  yrs <- 2000:END_YEAR
+  if (nrow(d) == 0) return(NULL)
+  last_y <- max(d$year)
+  out <- tibble(year = yrs, total = NA_real_)
+  out$total[match(d$year, yrs)] <- d$total_internet_users
+  # interpolate internal gaps
+  if (nrow(d) >= 2) {
+    inner <- yrs >= min(d$year) & yrs <= last_y
+    out$total[inner] <- approx(d$year, d$total_internet_users, yrs[inner])$y
+  }
+  recent <- d %>% filter(year >= last_y - 9)
+  slope <- if (nrow(recent) >= 3)
+    coef(lm(logit(clip(total_internet_users/100)) ~ year, recent))[2] else 0
+  slope <- max(slope, 0)                         # usage shouldn't trend down
+  base  <- logit(clip(d$total_internet_users[d$year == last_y] / 100))
+  h <- 1:(END_YEAR - last_y)
+  out$total[match(last_y + h, yrs)] <- 100 * plogis(base + slope * cumsum(phi^h))
+  out
+}
+tp <- clean %>% group_by(iso3) %>% group_modify(~ total_path(.x)) %>% ungroup()
+
+# (b) Mobile share r = mobile/total, pooled logit regression
+obs <- clean %>% filter(!is.na(mobile_internet_users)) %>%
+  left_join(tp, by = c("iso3", "year")) %>%
+  filter(!is.na(total)) %>%
+  mutate(r = clip(mobile_internet_users / total, .01, .995))
+
+fit <- lm(logit(r) ~ factor(iso3) + year, data = obs)
+print(summary(fit)$coefficients["year", ])
+
+last_obs <- obs %>% group_by(iso3) %>% summarise(last_y = max(year), .groups = "drop")
+fc <- last_obs %>%
+  rowwise() %>% mutate(year = list((last_y + 1):END_YEAR)) %>% ungroup() %>%
+  select(-last_y) %>% unnest(year) %>%
+  left_join(tp, by = c("iso3", "year")) %>%
+  mutate(r_hat = plogis(predict(fit, newdata = data.frame(iso3 = iso3, year = year))),
+         # constraint enforced structurally: r_hat in (0,1) => mobile < total
+         mobile_internet_users = total * r_hat,
+         total_internet_users = total, type = "forecast")
+
+hist <- obs %>% transmute(iso3, year, total_internet_users, mobile_internet_users,
+                          type = "historical")
+out <- bind_rows(hist, fc %>% select(iso3, year, total_internet_users,
+                                     mobile_internet_users, type)) %>%
+  mutate(country = countrycode(iso3, "iso3c", "country.name")) %>%
+  select(country, iso3, year, type, total_internet_users, mobile_internet_users) %>%
+  arrange(country, year)
+stopifnot(all(out$mobile_internet_users <= out$total_internet_users + 1e-9))  # final check
+write_csv(out, "output/mobile_internet_forecasts.csv")
+
+## ---- TASK 5: VISUALISATION ------------------------------------------------
+ctry <- sort(unique(out$country)); pages <- split(ctry, ceiling(seq_along(ctry) / 12))
+pdf("output/plots.pdf", width = 11, height = 8)
+for (pg in pages) {
+  d <- out %>% filter(country %in% pg)
+  print(ggplot(d, aes(year)) +
+    geom_line(aes(y = total_internet_users), colour = "grey60", linetype = "dotted") +
+    geom_line(aes(y = mobile_internet_users, linetype = type), colour = "steelblue") +
+    geom_point(aes(y = mobile_internet_users, shape = type, colour = type)) +
+    scale_colour_manual(values = c(historical = "black", forecast = "red")) +
+    geom_vline(xintercept = 2025.5, colour = "grey80") +
+    facet_wrap(~country, ncol = 4) + ylim(0, 100) +
+    labs(title = "Mobile internet users (% pop): actual vs forecast to 2030",
+         subtitle = "Dotted grey = total internet users (upper bound)",
+         y = "% of population", x = NULL) + theme_minimal())
+}
+dev.off()

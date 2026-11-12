@@ -1,0 +1,72 @@
+country,iso3,n_mobile,first_year,last_year
+Algeria,DZA,1,2018,2018
+Bahrain,BHR,1,2018,2018
+Bosnia & Herzegovina,BIH,1,2018,2018
+Brunei,BRN,1,2022,2022
+Canada,CAN,1,2022,2022
+Cape Verde,CPV,1,2019,2019
+Costa Rica,CRI,1,2023,2023
+Cyprus,CYP,1,2019,2019
+Dominican Republic,DOM,1,2022,2022
+Libya,LBY,1,2025,2025
+Luxembourg,LUX,1,2025,2025
+Malawi,MWI,1,2023,2023
+Niger,NER,1,2025,2025
+North Macedonia,MKD,1,2018,2018
+Norway,NOR,1,2021,2021
+Palestinian Territories,PSE,1,2019,2019
+Philippines,PHL,1,2024,2024
+Qatar,QAT,1,2018,2018
+Sri Lanka,LKA,1,2024,2024
+Sweden,SWE,1,2021,2021
+Thailand,THA,1,2018,2018
+Zimbabwe,ZWE,1,2020,2020
+Austria,AUT,2,2018,2025
+Belarus,BLR,2,2024,2025
+Finland,FIN,2,2023,2025
+Italy,ITA,2,2023,2025
+Jamaica,JAM,2,2021,2023
+Jordan,JOR,2,2023,2024
+Kuwait,KWT,2,2020,2021
+Macao SAR China,MAC,2,2018,2021
+Serbia,SRB,2,2018,2021
+Slovakia,SVK,2,2021,2023
+Uruguay,URY,2,2022,2024
+Albania,ALB,3,2021,2023
+Bulgaria,BGR,3,2019,2025
+China,CHN,3,2019,2021
+Denmark,DNK,3,2018,2023
+France,FRA,3,2021,2025
+Lithuania,LTU,3,2019,2023
+Malta,MLT,3,2018,2023
+Morocco,MAR,3,2018,2024
+Romania,ROU,3,2018,2025
+Spain,ESP,3,2021,2025
+Turkey,TUR,3,2021,2025
+Belgium,BEL,4,2021,2025
+Côte d’Ivoire,CIV,4,2019,2024
+Egypt,EGY,4,2018,2022
+Germany,DEU,4,2019,2025
+Israel,ISR,4,2018,2021
+Latvia,LVA,4,2019,2025
+Slovenia,SVN,4,2018,2025
+Switzerland,CHE,4,2019,2025
+Uzbekistan,UZB,4,2018,2022
+Colombia,COL,5,2018,2024
+Hungary,HUN,5,2018,2025
+Poland,POL,5,2018,2025
+Portugal,PRT,5,2018,2023
+Singapore,SGP,5,2021,2025
+Japan,JPN,6,2018,2024
+Mexico,MEX,6,2019,2024
+Saudi Arabia,SAU,6,2018,2023
+Georgia,GEO,7,2018,2024
+Hong Kong SAR China,HKG,7,2018,2024
+Indonesia,IDN,7,2019,2025
+Kazakhstan,KAZ,7,2018,2024
+Peru,PER,7,2018,2024
+Brazil,BRA,8,2018,2025
+Czechia,CZE,8,2018,2025
+Malaysia,MYS,8,2018,2025
+Russia,RUS,8,2018,2025
+United Arab Emirates,ARE,8,2018,2025
